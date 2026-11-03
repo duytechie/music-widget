@@ -18,7 +18,7 @@ Tested on the development Mac, macOS 26.7.1, using Xcode 26.6.
 
 ## Automated
 
-All **13 tests passed** with a display available. Before the grid change, the original 10 tests passed, but a new regression test showed that dropping at (233, 517) left the tile there. The same test now lands at (196, 570). A test using synthetic AppKit mouse events verifies snapping during a drag, on release, and when a new tile restores the saved position. The suite checks retention, stale generations, retry scheduling, Unicode/quoted metadata, permission errors, subprocess output/failure/timeout/cancellation, and recovery when a display disappears or has negative coordinates. The final release build passed local code-signature verification.
+All **13 tests passed** with a display available. Before the grid change, the original 10 tests passed, but a new regression test showed that dropping at (233, 517) left the tile there. The same test now lands at (196, 570). A test using synthetic AppKit mouse events verifies that the cover follows the pointer across two cells, the guide marks the drop target, and the saved position changes only after release. It also checks that the guide disappears and a new tile restores the dropped position. The suite checks retention, stale generations, retry scheduling, Unicode/quoted metadata, permission errors, subprocess output/failure/timeout/cancellation, and recovery when a display disappears or has negative coordinates. The final release build passed local code-signature verification.
 
 ## Manual checks
 
