@@ -82,12 +82,29 @@ final class DesktopTile: NSObject {
     let dropGuide: DesktopWindow
     private let widgetFrames: @MainActor () -> [CGRect]
     private var dragWidgets: [CGRect]?
+    private var screenRestoreTask: Task<Void, Never>?
     private let defaults: UserDefaults
+    struct Display {
+        let id: String
+        let visibleFrame: CGRect
+    }
+    private let displays: @MainActor () -> [Display]
+
+    static func currentDisplays() -> [Display] {
+        NSScreen.screens.compactMap { screen in
+            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+                  let uuid = CGDisplayCreateUUIDFromDisplayID(number.uint32Value)?.takeRetainedValue()
+            else { return nil }
+            return Display(id: CFUUIDCreateString(nil, uuid) as String, visibleFrame: screen.visibleFrame)
+        }
+    }
 
     init(store: ArtworkStore, defaults: UserDefaults = .standard,
-         widgetFrames: @escaping @MainActor () -> [CGRect] = { DesktopWidgetFrames.current() }) {
+         widgetFrames: @escaping @MainActor () -> [CGRect] = { DesktopWidgetFrames.current() },
+         displays: @escaping @MainActor () -> [Display] = { DesktopTile.currentDisplays() }) {
         self.widgetFrames = widgetFrames
         self.defaults = defaults
+        self.displays = displays
         window = DesktopWindow(contentRect: NSRect(x: 0, y: 0, width: Self.side, height: Self.side),
             styleMask: [.borderless], backing: .buffered, defer: false)
         dropGuide = DesktopWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -138,46 +155,87 @@ final class DesktopTile: NSObject {
     }
 
     func resetPosition() {
-        guard let screen = NSScreen.screens.first else { return }
+        screenRestoreTask?.cancel()
+        guard let screen = displays().first else { return }
         let visible = screen.visibleFrame
         place(CGRect(x: visible.maxX - Self.side, y: visible.maxY - Self.side, width: Self.side, height: Self.side))
     }
 
     private func restorePosition() {
-        if defaults.object(forKey: "tileX") != nil, defaults.object(forKey: "tileY") != nil {
-            let x = defaults.double(forKey: "tileX")
-            let y = defaults.double(forKey: "tileY")
-            if x.isFinite && y.isFinite {
-                let frame = CGRect(origin: CGPoint(x: x, y: y), size: window.frame.size)
-                let widgets = widgetFrames()
-                if NSScreen.screens.contains(where: { $0.visibleFrame.contains(frame) }),
-                   !widgets.contains(where: { frame.intersects($0) }) {
-                    window.setFrameOrigin(frame.origin)
-                } else {
-                    place(frame, widgets: widgets)
-                }
-                return
+        let screens = displays()
+        guard let primary = screens.first else { return }
+        let savedDisplay = defaults.string(forKey: "tileDisplayID")
+        // Existing placements predate the display-role preference: migrate them to
+        // the main desktop. Explicit drops on secondary displays remain pinned.
+        let followsPrimary = defaults.object(forKey: "tileFollowsPrimary") == nil || defaults.bool(forKey: "tileFollowsPrimary")
+        let matching = followsPrimary ? primary : screens.first { $0.id == savedDisplay }
+        var frame: CGRect?
+        if savedDisplay != nil,
+           defaults.object(forKey: "tileRight") != nil, defaults.object(forKey: "tileTop") != nil {
+            let right = defaults.double(forKey: "tileRight")
+            let top = defaults.double(forKey: "tileTop")
+            if right.isFinite && top.isFinite {
+                let visible = (matching ?? primary).visibleFrame
+                let horizontal = defaults.string(forKey: "tileHorizontalEdge")
+                let vertical = defaults.string(forKey: "tileVerticalEdge")
+                let dx = defaults.double(forKey: "tileHorizontalInset")
+                let dy = defaults.double(forKey: "tileVerticalInset")
+                frame = CGRect(x: horizontal == "left" && dx.isFinite ? visible.minX + dx :
+                                horizontal == "right" && dx.isFinite ? visible.maxX - Self.side - dx : visible.maxX - Self.side - right,
+                               y: vertical == "bottom" && dy.isFinite ? visible.minY + dy :
+                                vertical == "top" && dy.isFinite ? visible.maxY - Self.side - dy : visible.maxY - Self.side - top,
+                               width: Self.side, height: Self.side)
             }
         }
-        resetPosition()
+        if frame == nil, defaults.object(forKey: "tileX") != nil, defaults.object(forKey: "tileY") != nil {
+            let x = defaults.double(forKey: "tileX"), y = defaults.double(forKey: "tileY")
+            if x.isFinite && y.isFinite {
+                frame = CGRect(x: x, y: y, width: Self.side, height: Self.side)
+            }
+        }
+        guard let frame else { resetPosition(); return }
+        // Constrain to the saved display even if its origin or resolution changed.
+        let visible = savedDisplay == nil ? screens.map(\.visibleFrame) : [(matching ?? primary).visibleFrame]
+        let widgets = widgetFrames()
+        let target: CGRect
+        if visible.contains(where: { $0.contains(frame) }), !widgets.contains(where: { frame.intersects($0) }) {
+            target = frame
+        } else {
+            target = TilePlacement.fit(frame, visibleScreens: visible, widgets: widgets)
+        }
+        window.setFrameOrigin(target.origin)
+        // A temporary fallback must not overwrite the preferred display's position.
+        // Migrate legacy absolute coordinates once; only an explicit drop/reset changes it afterward.
+        if savedDisplay == nil || (defaults.string(forKey: "tileVerticalEdge") == nil && matching?.id == savedDisplay) {
+            savePosition()
+        }
     }
 
     @objc private func screenChanged() {
-        if dragWidgets != nil {
-            dragWidgets = widgetFrames()
-            dropGuide.orderOut(nil)
-        } else {
-            restorePosition()
+        screenRestoreTask?.cancel()
+        dragWidgets = nil
+        dropGuide.orderOut(nil)
+        restorePosition()
+        // AppKit can relocate windows and Notification Center can reflow widgets
+        // after the initial notification. Re-read geometry without saving fallback
+        // positions. A new display event or user drag cancels these retries.
+        screenRestoreTask = Task { @MainActor [weak self] in
+            for delay in [250_000_000, 750_000_000, 1_000_000_000] {
+                do { try await Task.sleep(nanoseconds: UInt64(delay)) } catch { return }
+                guard let self else { return }
+                self.restorePosition()
+            }
         }
     }
 
     private func updateDrag(_ frame: CGRect, phase: DragPhase) {
         guard window.isVisible else { return }
+        screenRestoreTask?.cancel()
         let widgets = dragWidgets ?? widgetFrames()
         switch phase {
         case .moving:
             dragWidgets = widgets
-            let target = TilePlacement.drop(frame, visibleScreens: NSScreen.screens.map(\.visibleFrame), widgets: widgets)
+            let target = TilePlacement.drop(frame, visibleScreens: displays().map(\.visibleFrame), widgets: widgets)
             window.setFrameOrigin(frame.origin)
             guard target.showsGuide else {
                 dropGuide.orderOut(nil)
@@ -194,7 +252,7 @@ final class DesktopTile: NSObject {
     private func place(_ frame: CGRect, widgets: [CGRect]? = nil) {
         dragWidgets = nil
         dropGuide.orderOut(nil)
-        let screens = NSScreen.screens.map(\.visibleFrame)
+        let screens = displays().map(\.visibleFrame)
         guard !screens.isEmpty else { return }
         let target = TilePlacement.fit(frame, visibleScreens: screens, widgets: widgets ?? widgetFrames())
         window.setFrameOrigin(target.origin)
@@ -204,5 +262,25 @@ final class DesktopTile: NSObject {
     private func savePosition() {
         defaults.set(window.frame.origin.x, forKey: "tileX")
         defaults.set(window.frame.origin.y, forKey: "tileY")
+        let frame = window.frame
+        let screen = displays().max { lhs, rhs in
+            func area(_ visible: CGRect) -> CGFloat {
+                let intersection = frame.intersection(visible)
+                return intersection.isNull ? 0 : intersection.width * intersection.height
+            }
+            return area(lhs.visibleFrame) < area(rhs.visibleFrame)
+        }
+        guard let screen else { return }
+        defaults.set(screen.id, forKey: "tileDisplayID")
+        defaults.set(screen.id == displays().first?.id, forKey: "tileFollowsPrimary")
+        let visible = screen.visibleFrame
+        let left = frame.minX - visible.minX, right = visible.maxX - frame.maxX
+        let bottom = frame.minY - visible.minY, top = visible.maxY - frame.maxY
+        defaults.set(left <= right ? "left" : "right", forKey: "tileHorizontalEdge")
+        defaults.set(min(left, right), forKey: "tileHorizontalInset")
+        defaults.set(bottom <= top ? "bottom" : "top", forKey: "tileVerticalEdge")
+        defaults.set(min(bottom, top), forKey: "tileVerticalInset")
+        defaults.set(screen.visibleFrame.maxX - frame.maxX, forKey: "tileRight")
+        defaults.set(screen.visibleFrame.maxY - frame.maxY, forKey: "tileTop")
     }
 }
