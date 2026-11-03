@@ -8,7 +8,8 @@ let package = Package(
     targets: [
         .target(name: "ArtworkCore"),
         .executableTarget(name: "AlbumArtwork", dependencies: ["ArtworkCore"], resources: [.copy("Scripts")]),
-        .testTarget(name: "ArtworkCoreTests", dependencies: ["ArtworkCore"])
+        .testTarget(name: "ArtworkCoreTests", dependencies: ["ArtworkCore"]),
+        .testTarget(name: "DesktopTileTests", dependencies: ["AlbumArtwork", "ArtworkCore"])
     ],
     swiftLanguageModes: [.v5]
 )

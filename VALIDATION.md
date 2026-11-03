@@ -13,20 +13,23 @@ Tested on the development Mac, macOS 26.7.1, using Xcode 26.6.
 - Closed Music and verified that the album cover remained visible with **Apple Music is closed · keeping last cover** in the controls menu.
 - Opened the tile's controls menu, invoked **Reset Position**, and quit the prototype using **Quit Album Artwork**.
 - Relaunched the final build while Music was closed: the saved album cover and placement restored, and the status still reported Music closed. The prototype did not launch Music.
+- After installing the grid update, the restored artwork's top-left was (1332, 442) in WindowServer coordinates. The visible faces of the two small desktop widgets started at (1332, 622) and (1332, 802): all three share a column with 16-point gaps.
 - Reopened Music after that check, returned to the original playlist, and restored the original random track paused at approximately 1:51. The prototype remains running.
 
 ## Automated
 
-All **10 tests passed**. The suite checks retention, stale generations, retry scheduling, Unicode/quoted metadata, permission errors, subprocess output/failure/timeout/cancellation, and recovery when a display disappears or has negative coordinates. The final release build passed local code-signature verification.
+All **15 tests passed** with a display available. Geometry tests cover free placement in open space, alignment beside independently positioned and multi-cell widgets, occupied slots, screen edges, and display recovery. Synthetic AppKit mouse events check that a slight pointer wobble leaves the tile still, the cover tracks the grab point, and the guide appears near a corner and disappears in open space. The test verifies both kinds of drop and restores a free position after relaunch. The release build passed local code-signature verification.
+
+The interaction follows macOS desktop placement guidance. The app uses its own snap distances of 60 points around adjacent widget slots and 32 points around inset edge rows or columns. [Apple’s widget guide](https://support.apple.com/guide/mac-help/add-and-customize-widgets-mchl52be5da5/mac) · [Desktop drag demonstration](https://macmost.com/19-tips-for-using-desktop-widgets-on-your-mac.html)
 
 ## Manual checks
 
 The following still need explicit live verification and must not be inferred solely from the window configuration or unit tests:
 
 - Desktop layering, Show Desktop, multiple Spaces, and exclusion from full-screen app Spaces.
-- Dragging and saved drag placement: the UI automation service cannot drive coordinate drags on this desktop-level window (`noWindowsAvailable`), though it can inspect the view and invoke its context menu.
+- Physical pointer dragging: the UI automation service cannot drive coordinate drags on this desktop-level window (`noWindowsAvailable`), though it can inspect the view and invoke its context menu.
 - Hide/show through the menu bar icon.
-- Physical display disconnect/reconnect and placement against other actual desktop widgets.
+- Physical display disconnect/reconnect.
 - A clean first-launch denied Automation permission flow, without changing the developer's existing permissions.
 
 These manual limitations are separate from the passing automated geometry and state-machine checks.
