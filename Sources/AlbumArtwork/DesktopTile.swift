@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ArtworkView: View {
     @ObservedObject var store: ArtworkStore
+    let place: (CGRect, [CGRect]) -> Void
 
     var body: some View {
         ZStack {
@@ -24,7 +25,7 @@ struct ArtworkView: View {
         .accessibilityLabel(store.track.map { "\($0.album), \($0.artist)" } ?? "Apple Music artwork")
         .help(store.status)
         .overlay {
-            DragSurface()
+            DragSurface(place: place)
                 .accessibilityHidden(true)
                 .allowsHitTesting(true)
         }
@@ -32,13 +33,39 @@ struct ArtworkView: View {
 }
 
 private struct DragSurface: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { DragView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    let place: (CGRect, [CGRect]) -> Void
+    func makeNSView(context: Context) -> DragView { DragView() }
+    func updateNSView(_ view: DragView, context: Context) { view.place = place }
 }
 
 private final class DragView: NSView {
-    override var mouseDownCanMoveWindow: Bool { true }
-    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    var place: ((CGRect, [CGRect]) -> Void)?
+    private var grabOffset = CGPoint.zero
+    private var widgets: [CGRect] = []
+    private var dragged = false
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func mouseDown(with event: NSEvent) {
+        // Keep the original grab point even when the window jumps to another cell.
+        grabOffset = event.locationInWindow
+        widgets = DesktopWidgetFrames.current()
+        dragged = false
+    }
+    override func mouseDragged(with event: NSEvent) {
+        dragged = true
+        placeAtPointer(event)
+    }
+    override func mouseUp(with event: NSEvent) {
+        if dragged { placeAtPointer(event) }
+        dragged = false
+    }
+    private func placeAtPointer(_ event: NSEvent) {
+        guard let window else { return }
+        let point = window.convertPoint(toScreen: event.locationInWindow)
+        place?(CGRect(x: point.x - grabOffset.x, y: point.y - grabOffset.y,
+                      width: window.frame.width, height: window.frame.height), widgets)
+    }
     override func menu(for event: NSEvent) -> NSMenu? { window?.contentView?.menu }
 }
 
@@ -48,13 +75,13 @@ final class DesktopWindow: NSWindow {
 }
 
 @MainActor
-final class DesktopTile: NSObject, NSWindowDelegate {
-    static let side: CGFloat = 164
+final class DesktopTile: NSObject {
+    static let side = TilePlacement.side
     let window: DesktopWindow
-    private let defaults = UserDefaults.standard
-    private var restoring = false
+    private let defaults: UserDefaults
 
-    init(store: ArtworkStore) {
+    init(store: ArtworkStore, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         window = DesktopWindow(contentRect: NSRect(x: 0, y: 0, width: Self.side, height: Self.side),
             styleMask: [.borderless], backing: .buffered, defer: false)
         super.init()
@@ -65,12 +92,13 @@ final class DesktopTile: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.hidesOnDeactivate = false
         window.canHide = false
-        window.isMovableByWindowBackground = true
+        window.isMovableByWindowBackground = false
         window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1)
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenNone, .fullScreenDisallowsTiling]
         window.animationBehavior = .none
-        window.contentView = NSHostingView(rootView: ArtworkView(store: store))
-        window.delegate = self
+        window.contentView = NSHostingView(rootView: ArtworkView(store: store) { [weak self] frame, widgets in
+            self?.place(frame, widgets: widgets)
+        })
         restorePosition()
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         if !defaults.bool(forKey: "tileHidden") { window.orderFrontRegardless() }
@@ -86,33 +114,34 @@ final class DesktopTile: NSObject, NSWindowDelegate {
     func resetPosition() {
         guard let screen = NSScreen.screens.first else { return }
         let visible = screen.visibleFrame
-        window.setFrameOrigin(NSPoint(x: visible.maxX - Self.side - 24, y: visible.maxY - Self.side - 24))
-        savePosition()
-    }
-
-    func windowDidMove(_ notification: Notification) {
-        if !restoring { savePosition() }
+        place(CGRect(x: visible.maxX - Self.side, y: visible.maxY - Self.side, width: Self.side, height: Self.side))
     }
 
     private func restorePosition() {
-        restoring = true
-        defer { restoring = false }
         if defaults.object(forKey: "tileX") != nil, defaults.object(forKey: "tileY") != nil {
             let x = defaults.double(forKey: "tileX")
             let y = defaults.double(forKey: "tileY")
-            if x.isFinite && y.isFinite { window.setFrameOrigin(NSPoint(x: x, y: y)) }
-            fitOnscreen()
-        } else {
-            resetPosition()
+            if x.isFinite && y.isFinite {
+                place(CGRect(origin: CGPoint(x: x, y: y), size: window.frame.size))
+                return
+            }
         }
+        resetPosition()
     }
 
     @objc private func screenChanged() { fitOnscreen() }
 
-    private func fitOnscreen() {
-        let fitted = TilePlacement.fit(window.frame, visibleScreens: NSScreen.screens.map(\.visibleFrame))
-        window.setFrameOrigin(fitted.origin)
-        savePosition()
+    private func fitOnscreen() { place(window.frame) }
+
+    private func place(_ frame: CGRect, widgets: [CGRect]? = nil) {
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        guard !screens.isEmpty else { return }
+        let origin = TilePlacement.fit(frame, visibleScreens: screens, widgets: widgets ?? DesktopWidgetFrames.current()).origin
+        if window.frame.origin != origin { window.setFrameOrigin(origin) }
+        if defaults.object(forKey: "tileX") == nil || defaults.object(forKey: "tileY") == nil ||
+            defaults.double(forKey: "tileX") != origin.x || defaults.double(forKey: "tileY") != origin.y {
+            savePosition()
+        }
     }
 
     private func savePosition() {

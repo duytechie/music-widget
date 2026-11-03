@@ -13,20 +13,21 @@ Tested on the development Mac, macOS 26.7.1, using Xcode 26.6.
 - Closed Music and verified that the album cover remained visible with **Apple Music is closed · keeping last cover** in the controls menu.
 - Opened the tile's controls menu, invoked **Reset Position**, and quit the prototype using **Quit Album Artwork**.
 - Relaunched the final build while Music was closed: the saved album cover and placement restored, and the status still reported Music closed. The prototype did not launch Music.
+- After installing the grid update, the restored artwork's top-left was (1332, 442) in WindowServer coordinates. The visible faces of the two small desktop widgets started at (1332, 622) and (1332, 802): all three share a column with 16-point gaps.
 - Reopened Music after that check, returned to the original playlist, and restored the original random track paused at approximately 1:51. The prototype remains running.
 
 ## Automated
 
-All **10 tests passed**. The suite checks retention, stale generations, retry scheduling, Unicode/quoted metadata, permission errors, subprocess output/failure/timeout/cancellation, and recovery when a display disappears or has negative coordinates. The final release build passed local code-signature verification.
+All **13 tests passed** with a display available. Before the grid change, the original 10 tests passed, but a new regression test showed that dropping at (233, 517) left the tile there. The same test now lands at (196, 570). A test using synthetic AppKit mouse events verifies snapping during a drag, on release, and when a new tile restores the saved position. The suite checks retention, stale generations, retry scheduling, Unicode/quoted metadata, permission errors, subprocess output/failure/timeout/cancellation, and recovery when a display disappears or has negative coordinates. The final release build passed local code-signature verification.
 
 ## Manual checks
 
 The following still need explicit live verification and must not be inferred solely from the window configuration or unit tests:
 
 - Desktop layering, Show Desktop, multiple Spaces, and exclusion from full-screen app Spaces.
-- Dragging and saved drag placement: the UI automation service cannot drive coordinate drags on this desktop-level window (`noWindowsAvailable`), though it can inspect the view and invoke its context menu.
+- Physical pointer dragging: the UI automation service cannot drive coordinate drags on this desktop-level window (`noWindowsAvailable`), though it can inspect the view and invoke its context menu.
 - Hide/show through the menu bar icon.
-- Physical display disconnect/reconnect and placement against other actual desktop widgets.
+- Physical display disconnect/reconnect.
 - A clean first-launch denied Automation permission flow, without changing the developer's existing permissions.
 
 These manual limitations are separate from the passing automated geometry and state-machine checks.
