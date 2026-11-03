@@ -67,15 +67,15 @@ final class ArtworkCoreTests: XCTestCase {
         let oldFrame = CGRect(x: 1900, y: 400, width: 164, height: 164)
         let fitted = TilePlacement.fit(oldFrame, visibleScreens: [primary])
         XCTAssertTrue(primary.contains(fitted))
-        XCTAssertEqual(fitted.origin, CGPoint(x: 1276, y: 750))
+        XCTAssertEqual(fitted.origin, CGPoint(x: 1332, y: 750))
     }
 
-    func testOffGridDropSnapsToNearestCell() {
+    func testOpenDesktopDropPreservesPointerPosition() {
         let screen = CGRect(x: 0, y: 30, width: 1512, height: 900)
         let drop = CGRect(x: 233, y: 517, width: 164, height: 164)
-        let cell = TilePlacement.fit(drop, visibleScreens: [screen])
-        XCTAssertEqual(cell.origin, CGPoint(x: 196, y: 570))
-        XCTAssertEqual(TilePlacement.fit(cell, visibleScreens: [screen]), cell)
+        let result = TilePlacement.drop(drop, visibleScreens: [screen])
+        XCTAssertFalse(result.showsGuide)
+        XCTAssertEqual(result.frame, drop)
     }
 
     func testPositionClampsToItsOwnScreenIncludingNegativeCoordinates() {
@@ -96,6 +96,28 @@ final class ArtworkCoreTests: XCTestCase {
         for drop in [above.offsetBy(dx: -17, dy: 11), calendar.offsetBy(dx: 0, dy: 10), above] {
             XCTAssertEqual(TilePlacement.fit(drop, visibleScreens: [screen], widgets: widgets), above)
         }
+    }
+
+    func testGuideUsesNearbyWidgetInAnIndependentlyPositionedGroup() {
+        let screen = CGRect(x: 0, y: 0, width: 1500, height: 1000)
+        let distant = CGRect(x: 100, y: 780, width: 164, height: 164)
+        let wide = CGRect(x: 523, y: 412, width: 344, height: 164)
+        let slot = CGRect(x: 703, y: 232, width: 164, height: 164)
+        let nearby = TilePlacement.drop(slot.offsetBy(dx: 17, dy: 12), visibleScreens: [screen], widgets: [distant, wide])
+        XCTAssertTrue(nearby.showsGuide)
+        XCTAssertEqual(nearby.frame, slot)
+        let outside = slot.offsetBy(dx: 0, dy: -98)
+        let free = TilePlacement.drop(outside, visibleScreens: [screen], widgets: [distant, wide])
+        XCTAssertFalse(free.showsGuide)
+        XCTAssertEqual(free.frame, outside)
+    }
+
+    func testRightEdgeOffersAnInsetGuideOnItsOwnDisplay() {
+        let secondary = CGRect(x: -1200, y: 10, width: 1200, height: 900)
+        let frame = CGRect(x: -164, y: 511, width: 164, height: 164)
+        let drop = TilePlacement.drop(frame, visibleScreens: [CGRect(x: 0, y: 0, width: 1600, height: 1000), secondary])
+        XCTAssertTrue(drop.showsGuide)
+        XCTAssertEqual(drop.frame.origin, CGPoint(x: -180, y: 550))
     }
 
     func testRunnerReturnsOutputAndReportsFailure() async throws {

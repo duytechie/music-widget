@@ -18,7 +18,9 @@ Tested on the development Mac, macOS 26.7.1, using Xcode 26.6.
 
 ## Automated
 
-All **13 tests passed** with a display available. Before the grid change, the original 10 tests passed, but a new regression test showed that dropping at (233, 517) left the tile there. The same test now lands at (196, 570). A test using synthetic AppKit mouse events verifies that the cover follows the pointer across two cells, the guide marks the drop target, and the saved position changes only after release. It also checks that the guide disappears and a new tile restores the dropped position. The suite checks retention, stale generations, retry scheduling, Unicode/quoted metadata, permission errors, subprocess output/failure/timeout/cancellation, and recovery when a display disappears or has negative coordinates. The final release build passed local code-signature verification.
+All **15 tests passed** with a display available. Geometry tests cover free placement in open space, alignment beside independently positioned and multi-cell widgets, occupied slots, screen edges, and display recovery. Synthetic AppKit mouse events check that a slight pointer wobble leaves the tile still, the cover tracks the grab point, and the guide appears near a corner and disappears in open space. The test verifies both kinds of drop and restores a free position after relaunch. The release build passed local code-signature verification.
+
+The interaction follows macOS desktop placement guidance. The app uses its own snap distances of 60 points around adjacent widget slots and 32 points around inset edge rows or columns. [Apple’s widget guide](https://support.apple.com/guide/mac-help/add-and-customize-widgets-mchl52be5da5/mac) · [Desktop drag demonstration](https://macmost.com/19-tips-for-using-desktop-widgets-on-your-mac.html)
 
 ## Manual checks
 

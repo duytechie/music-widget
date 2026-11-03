@@ -17,7 +17,7 @@ The build script creates a release `.app` and signs it locally with an ad hoc si
 
 - Open Apple Music and play a song. The app never launches Music or changes playback itself.
 - Allow the request to read Music if macOS shows an Automation prompt.
-- Drag anywhere on the cover. The cover follows your pointer while a translucent rounded outline marks the nearest available grid cell. Release the mouse or trackpad to snap the cover into the outline, aligned with your desktop widgets. On a display without detectable widgets, the grid starts near the top-left of the usable desktop. Position and visibility persist across launches.
+- Drag anywhere on the cover. In open desktop space it stays where you release it. Near another desktop widget or a screen edge, a rounded outline shows the proposed drop position. Move away to dismiss the outline, or release to snap into it. Position and visibility persist across launches.
 - Click the stacked-square icon in the menu bar for **Show/Hide Artwork**, **Reset Position**, and **Quit Album Artwork**. The same menu is available by right-clicking the tile.
 - The cover remains visible when Music pauses, stops, or closes. A saved cover also appears after restarting this app.
 - A new track without readable artwork shows a neutral music-note tile. Artwork retries after 1, 2, 4, 8, and 16 seconds, then waits for a different track.

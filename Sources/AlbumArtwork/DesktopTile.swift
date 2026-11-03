@@ -6,7 +6,7 @@ enum DragPhase { case moving, released }
 
 struct ArtworkView: View {
     @ObservedObject var store: ArtworkStore
-    let onDrag: (CGRect, [CGRect], DragPhase) -> Void
+    let onDrag: (CGRect, DragPhase) -> Void
 
     var body: some View {
         ZStack {
@@ -35,25 +35,25 @@ struct ArtworkView: View {
 }
 
 private struct DragSurface: NSViewRepresentable {
-    let onDrag: (CGRect, [CGRect], DragPhase) -> Void
+    let onDrag: (CGRect, DragPhase) -> Void
     func makeNSView(context: Context) -> DragView { DragView() }
     func updateNSView(_ view: DragView, context: Context) { view.onDrag = onDrag }
 }
 
 private final class DragView: NSView {
-    var onDrag: ((CGRect, [CGRect], DragPhase) -> Void)?
+    var onDrag: ((CGRect, DragPhase) -> Void)?
     private var grabOffset = CGPoint.zero
-    private var widgets: [CGRect] = []
     private var dragged = false
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     override func mouseDown(with event: NSEvent) {
         grabOffset = event.locationInWindow
-        widgets = DesktopWidgetFrames.current()
         dragged = false
     }
     override func mouseDragged(with event: NSEvent) {
+        let point = event.locationInWindow
+        guard dragged || hypot(point.x - grabOffset.x, point.y - grabOffset.y) >= 3 else { return }
         dragged = true
         placeAtPointer(event, phase: .moving)
     }
@@ -65,7 +65,7 @@ private final class DragView: NSView {
         guard let window else { return }
         let point = window.convertPoint(toScreen: event.locationInWindow)
         onDrag?(CGRect(x: point.x - grabOffset.x, y: point.y - grabOffset.y,
-                      width: window.frame.width, height: window.frame.height), widgets, phase)
+                      width: window.frame.width, height: window.frame.height), phase)
     }
     override func menu(for event: NSEvent) -> NSMenu? { window?.contentView?.menu }
 }
@@ -80,9 +80,13 @@ final class DesktopTile: NSObject {
     static let side = TilePlacement.side
     let window: DesktopWindow
     let dropGuide: DesktopWindow
+    private let widgetFrames: @MainActor () -> [CGRect]
+    private var dragWidgets: [CGRect]?
     private let defaults: UserDefaults
 
-    init(store: ArtworkStore, defaults: UserDefaults = .standard) {
+    init(store: ArtworkStore, defaults: UserDefaults = .standard,
+         widgetFrames: @escaping @MainActor () -> [CGRect] = { DesktopWidgetFrames.current() }) {
+        self.widgetFrames = widgetFrames
         self.defaults = defaults
         window = DesktopWindow(contentRect: NSRect(x: 0, y: 0, width: Self.side, height: Self.side),
             styleMask: [.borderless], backing: .buffered, defer: false)
@@ -111,8 +115,8 @@ final class DesktopTile: NSObject {
                 .fill(.white.opacity(0.08))
                 .strokeBorder(.white.opacity(0.55), lineWidth: 2.5)
                 .accessibilityHidden(true))
-        window.contentView = NSHostingView(rootView: ArtworkView(store: store) { [weak self] frame, widgets, phase in
-            self?.updateDrag(frame, widgets: widgets, phase: phase)
+        window.contentView = NSHostingView(rootView: ArtworkView(store: store) { [weak self] frame, phase in
+            self?.updateDrag(frame, phase: phase)
         })
         restorePosition()
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -123,6 +127,7 @@ final class DesktopTile: NSObject {
 
     func toggle() {
         if isVisible {
+            dragWidgets = nil
             dropGuide.orderOut(nil)
             window.orderOut(nil)
         } else {
@@ -143,25 +148,43 @@ final class DesktopTile: NSObject {
             let x = defaults.double(forKey: "tileX")
             let y = defaults.double(forKey: "tileY")
             if x.isFinite && y.isFinite {
-                place(CGRect(origin: CGPoint(x: x, y: y), size: window.frame.size))
+                let frame = CGRect(origin: CGPoint(x: x, y: y), size: window.frame.size)
+                let widgets = widgetFrames()
+                if NSScreen.screens.contains(where: { $0.visibleFrame.contains(frame) }),
+                   !widgets.contains(where: { frame.intersects($0) }) {
+                    window.setFrameOrigin(frame.origin)
+                } else {
+                    place(frame, widgets: widgets)
+                }
                 return
             }
         }
         resetPosition()
     }
 
-    @objc private func screenChanged() { fitOnscreen() }
+    @objc private func screenChanged() {
+        if dragWidgets != nil {
+            dragWidgets = widgetFrames()
+            dropGuide.orderOut(nil)
+        } else {
+            restorePosition()
+        }
+    }
 
-    private func fitOnscreen() { place(window.frame) }
-
-    private func updateDrag(_ frame: CGRect, widgets: [CGRect], phase: DragPhase) {
+    private func updateDrag(_ frame: CGRect, phase: DragPhase) {
         guard window.isVisible else { return }
+        let widgets = dragWidgets ?? widgetFrames()
         switch phase {
         case .moving:
-            let target = TilePlacement.fit(frame, visibleScreens: NSScreen.screens.map(\.visibleFrame), widgets: widgets)
+            dragWidgets = widgets
+            let target = TilePlacement.drop(frame, visibleScreens: NSScreen.screens.map(\.visibleFrame), widgets: widgets)
             window.setFrameOrigin(frame.origin)
+            guard target.showsGuide else {
+                dropGuide.orderOut(nil)
+                return
+            }
             // The slight outset keeps the outline visible even when the cover is centered over it.
-            dropGuide.setFrame(target.insetBy(dx: -4, dy: -4), display: true)
+            dropGuide.setFrame(target.frame.insetBy(dx: -4, dy: -4), display: true)
             if !dropGuide.isVisible { dropGuide.order(.below, relativeTo: window.windowNumber) }
         case .released:
             place(frame, widgets: widgets)
@@ -169,10 +192,11 @@ final class DesktopTile: NSObject {
     }
 
     private func place(_ frame: CGRect, widgets: [CGRect]? = nil) {
+        dragWidgets = nil
         dropGuide.orderOut(nil)
         let screens = NSScreen.screens.map(\.visibleFrame)
         guard !screens.isEmpty else { return }
-        let target = TilePlacement.fit(frame, visibleScreens: screens, widgets: widgets ?? DesktopWidgetFrames.current())
+        let target = TilePlacement.fit(frame, visibleScreens: screens, widgets: widgets ?? widgetFrames())
         window.setFrameOrigin(target.origin)
         savePosition()
     }
