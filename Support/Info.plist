@@ -4,6 +4,8 @@
     <key>CFBundleIdentifier</key><string>com.local.AlbumArtwork</string>
     <key>CFBundleName</key><string>Album Artwork</string>
     <key>CFBundleDisplayName</key><string>Album Artwork</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleExecutable</key><string>AlbumArtwork</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>

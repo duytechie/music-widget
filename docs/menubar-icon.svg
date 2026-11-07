@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="240" height="240">
+  <title>Album Artwork menu bar icon (template, black = tinted by macOS)</title>
+  <path fill-rule="evenodd" d="M9 11.8a5.2 5.2 0 1 0 0 10.4 5.2 5.2 0 1 0 0-10.4zM9 15.2a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 1 1 0-3.6z"/>
+  <rect x="12.9" y="3.5" width="2.4" height="14.5" rx="1.2"/>
+  <path d="M14 3.5Q21.2 4.6 20 11.4Q17.6 8.2 14 8.2Z"/>
+</svg>

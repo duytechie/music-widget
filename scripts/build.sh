@@ -12,6 +12,8 @@ APP_DIR="$PROJECT_DIR/build/Album Artwork.app"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN_DIR/AlbumArtwork" "$APP_DIR/Contents/MacOS/AlbumArtwork"
 cp "$PROJECT_DIR/Support/Info.plist" "$APP_DIR/Contents/Info.plist"
+cp "$PROJECT_DIR/Support/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+cp "$PROJECT_DIR/Support/Assets.car" "$APP_DIR/Contents/Resources/Assets.car"
 ditto "$PROJECT_DIR/Sources/AlbumArtwork/Scripts" "$APP_DIR/Contents/Resources/Scripts"
 plutil -lint "$APP_DIR/Contents/Info.plist"
 codesign --force --sign - --options runtime \

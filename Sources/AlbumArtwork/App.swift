@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         store = ArtworkStore()
         tile = DesktopTile(store: store)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: "Album Artwork")
+        statusItem.button?.image = MenuBarIcon.make()
         statusItem.button?.toolTip = "Album Artwork"
         let menu = NSMenu()
         menu.delegate = self

@@ -2,7 +2,7 @@
 
 A small native macOS app that puts the cover of the song you're playing in **Apple Music** or **Spotify** on your desktop. It's a 164 × 164 pt rounded tile with no controls. Drag it wherever you like, and it keeps showing the last cover when you pause or quit the player.
 
-![A rounded desktop tile showing the fictional Tidal Studies album cover](docs/artwork-preview.svg)
+![A Mac desktop with the Album Artwork tile at the top right and the app icon in the Dock](docs/artwork-preview.png)
 
 *Simulated desktop screenshot with original demo artwork.*
 
