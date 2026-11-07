@@ -69,7 +69,8 @@ The cached cover is deleted when a new track is detected, so an unrelated album 
 | `Sources/ArtworkCore` | Playback model, player selection, tile placement, command runner |
 | `Tests/` | `ArtworkCoreTests` and `DesktopTileTests` |
 | `Support/` | `Info.plist` and entitlements |
-| `scripts/` | `build.sh` and `test.sh` |
+| `scripts/` | `build.sh`, `test.sh` and `release.sh` |
+| `docs/releases/` | Release notes, one file per version |
 | `docs/` | README preview image |
 
 ## Testing
@@ -80,6 +81,18 @@ codesign --verify --strict "build/Album Artwork.app"
 ```
 
 Tests cover pause/stop/close retention, stale results after rapid skipping, bounded retries, metadata escaping, permission-error detection, subprocess failure/timeout/cancellation, and screen-placement recovery. Live results and remaining manual checks are in [VALIDATION.md](VALIDATION.md).
+
+## Releasing
+
+1. On `main`, set `CFBundleShortVersionString` (and bump `CFBundleVersion`) in `Support/Info.plist`.
+2. Write the notes in `docs/releases/<version>.md`, then commit and push.
+3. Run:
+
+```sh
+bash scripts/release.sh
+```
+
+The script refuses to run unless you're on a clean `main` that matches `origin/main`. It runs the tests, builds a universal app, writes `dist/Album-Artwork-<version>.zip` and its `.sha256`, tags `v<version>` and publishes the GitHub release with both files and the checksum in the notes. Use `--dry-run` to only build and package, `--draft` for a draft release.
 
 ## Limitations
 
