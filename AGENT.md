@@ -19,12 +19,12 @@ The build script creates a release `.app` and signs it locally with an ad hoc si
 - When both players are running, whichever is playing is shown. If both are idle, the last shown player is kept, so quitting one never swaps in the other's paused cover.
 - Allow the request to read Music and/or Spotify if macOS shows an Automation prompt (one per player).
 - Drag anywhere on the cover. In open desktop space it stays where you release it. Near another desktop widget or a screen edge, a rounded outline shows the proposed drop position. Move away to dismiss the outline, or release to snap into it. Position and visibility persist across launches.
-- Click the stacked-square icon in the menu bar for **Show/Hide Artwork**, **Reset Position**, and **Quit Album Artwork**. The same menu is available by right-clicking the tile.
+- Click the stacked-square icon in the menu bar for **Launch at Login**, **Show/Hide Artwork**, **Reset Position**, and **Quit Album Artwork**. The same menu is available by right-clicking the tile.
 - The cover remains visible when Music pauses, stops, or closes. A saved cover also appears after restarting this app.
 - A new track without readable artwork shows a neutral music-note tile. Artwork retries after 1, 2, 4, 8, and 16 seconds, then waits for a different track.
 - If access is denied, the menu exposes **Open Automation Settings…** and **Retry Music Access**. Enable Music access for the requesting app in **System Settings → Privacy & Security → Automation**, then retry. When launched from a development tool, macOS may attribute the request to that tool.
 
-The tile stays behind ordinary application windows and is configured for desktop Spaces, not full-screen app Spaces. It is a desktop app, so it does not appear in macOS's Edit Widgets gallery. There is no Dock icon, launch-at-login registration, server, analytics, or catalog API integration. Spotify covers are downloaded from the image URL Spotify itself reports (`artwork url`); only HTTPS URLs on Spotify's image CDNs (`*.scdn.co`, `*.spotifycdn.com`) are fetched, with an ephemeral session, 5-second timeout and 10 MB cap. No Spotify account, API key or Web API call is involved.
+The tile stays behind ordinary application windows and is configured for desktop Spaces, not full-screen app Spaces. It is a desktop app, so it does not appear in macOS's Edit Widgets gallery. Launch at Login is an opt-in menu toggle using `SMAppService.mainApp`. There is no Dock icon, server, analytics, or catalog API integration. Spotify covers are downloaded from the image URL Spotify itself reports (`artwork url`); only HTTPS URLs on Spotify's image CDNs (`*.scdn.co`, `*.spotifycdn.com`) are fetched, with an ephemeral session, 5-second timeout and 10 MB cap. No Spotify account, API key or Web API call is involved.
 
 ## Local storage and implementation
 

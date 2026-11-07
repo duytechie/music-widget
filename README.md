@@ -42,7 +42,7 @@ Behavior to know about:
 - **Missing artwork:** a neutral music-note tile is shown. Retries happen after 1, 2, 4, 8 and 16 seconds, then the app waits for a different track.
 - **Access denied:** the menu offers **Open Automation Settings…** and **Retry Music Access**. Enable access under **System Settings → Privacy & Security → Automation**. If you launched from a development tool, macOS may attribute the request to that tool.
 
-The tile is a regular desktop app, so it does not appear in macOS's Edit Widgets gallery, and it has no launch-at-login option.
+The tile is a regular desktop app, so it does not appear in macOS's Edit Widgets gallery. **Launch at Login** in the menu bar menu registers the app as a login item (manage it in System Settings → General → Login Items).
 
 ## How it works
 
