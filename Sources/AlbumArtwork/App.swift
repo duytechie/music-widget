@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -6,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var tile: DesktopTile!
     private var statusItem: NSStatusItem!
     private var statusLine: NSMenuItem!
+    private var launchAtLoginItem: NSMenuItem!
     private var visibilityItem: NSMenuItem!
     private var permissionItem: NSMenuItem!
     private var retryItem: NSMenuItem!
@@ -25,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusLine = NSMenuItem(title: store.status, action: nil, keyEquivalent: "")
         menu.addItem(statusLine)
         menu.addItem(.separator())
+        launchAtLoginItem = item("Launch at Login", action: #selector(toggleLaunchAtLogin), menu: menu)
         visibilityItem = item("Hide Artwork", action: #selector(toggleArtwork), menu: menu)
         item("Reset Position", action: #selector(resetPosition), menu: menu)
         menu.addItem(.separator())
@@ -42,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         statusLine.title = store.status
+        launchAtLoginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
         visibilityItem.title = tile.isVisible ? "Hide Artwork" : "Show Artwork"
         permissionItem.isHidden = !store.permissionDenied
         retryItem.isHidden = !store.permissionDenied
@@ -55,6 +59,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
+    @objc private func toggleLaunchAtLogin() {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.messageText = "Couldn't change Launch at Login"
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
+        if service.status == .requiresApproval {
+            // The user disabled the login item in System Settings; send them there to re-allow it.
+            SMAppService.openSystemSettingsLoginItems()
+        }
+    }
     @objc private func toggleArtwork() { tile.toggle() }
     @objc private func resetPosition() { tile.resetPosition() }
     @objc private func retryMusic() { store.retryPermission() }
