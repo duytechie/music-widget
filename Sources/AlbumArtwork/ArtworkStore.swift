@@ -5,17 +5,22 @@ import SwiftUI
 private struct CachedArtwork: Codable {
     let track: Track
     let imageData: Data
+    /// Missing in caches written before Spotify support; those came from Apple Music.
+    let source: PlayerSource?
 }
 
 @MainActor
 final class ArtworkStore: ObservableObject {
     @Published private(set) var image: NSImage?
     @Published private(set) var track: Track?
-    @Published private(set) var status = "Waiting for Apple Music"
+    @Published private(set) var source: PlayerSource?
+    @Published private(set) var status = "Waiting for Apple Music or Spotify"
     @Published private(set) var permissionDenied = false
     private var session = ArtworkSession()
+    private var selector = SourceSelector()
     private var polling: Task<Void, Never>?
-    private var hasContactedMusic = false
+    private var contactedSources = Set<PlayerSource>()
+    private var deniedSources = Set<PlayerSource>()
     private let cacheURL: URL
 
     init() {
@@ -26,10 +31,14 @@ final class ArtworkStore: ObservableObject {
            let restoredImage = NSImage(data: cache.imageData) {
             image = restoredImage
             track = cache.track
+            source = cache.source ?? .appleMusic
+            selector = SourceSelector(current: source)
             session.accept(PlaybackSnapshot(state: .paused, track: cache.track))
             session.finish(generation: session.generation)
         }
     }
+
+    private var playerName: String { source?.displayName ?? "Apple Music" }
 
     func start() {
         guard polling == nil else { return }
@@ -50,62 +59,102 @@ final class ArtworkStore: ObservableObject {
 
     func retryPermission() {
         permissionDenied = false
-        hasContactedMusic = false
+        deniedSources.removeAll()
+        contactedSources.removeAll()
         session.retryNow()
-        status = "Connecting to Apple Music…"
+        status = "Connecting to music players…"
     }
 
     private func refresh() async {
         guard !Task.isCancelled else { return }
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty else {
-            status = image == nil ? "Open Apple Music to show artwork" : "Apple Music is closed · keeping last cover"
+        let running = PlayerSource.allCases.filter {
+            !NSRunningApplication.runningApplications(withBundleIdentifier: $0.bundleIdentifier).isEmpty
+        }
+        guard !running.isEmpty else {
+            status = image == nil ? "Open Apple Music or Spotify to show artwork" : "\(playerName) is closed · keeping last cover"
             return
         }
+
         // Don't repeatedly invoke a denied Apple Event. Explicit retry is available in the menu.
-        guard !permissionDenied else { return }
+        var snapshots: [PlayerSource: PlaybackSnapshot] = [:]
+        var readFailed = false
+        for player in running where !deniedSources.contains(player) {
+            do {
+                snapshots[player] = try await readMetadata(player)
+            } catch {
+                guard !Task.isCancelled else { return }
+                if let commandError = error as? CommandError, commandError.isPermissionDenied {
+                    deniedSources.insert(player)
+                } else {
+                    readFailed = true
+                }
+            }
+        }
+        permissionDenied = !deniedSources.isEmpty
+
+        guard let active = selector.choose(snapshots), let snapshot = snapshots[active] else {
+            if permissionDenied {
+                let names = PlayerSource.allCases.filter(deniedSources.contains).map(\.displayName)
+                status = "Allow access to \(names.joined(separator: " and ")) in System Settings"
+            } else if readFailed {
+                status = "Music player unavailable · retrying"
+            } else {
+                status = image == nil ? "Play a song in Apple Music or Spotify" : "\(playerName) is closed · keeping last cover"
+            }
+            return
+        }
+        source = active
+        accept(snapshot)
+        guard snapshot.state == .playing || snapshot.state == .paused,
+              session.shouldFetch(at: Date()), let requestedTrack = session.track else { return }
+        let generation = session.generation
+
         do {
-            let snapshot = try await readMetadata()
-            accept(snapshot)
-            guard snapshot.state == .playing || snapshot.state == .paused,
-                  session.shouldFetch(at: Date()), let requestedTrack = session.track else { return }
-            let generation = session.generation
+            let data = try await fetchArtwork(from: active, for: requestedTrack, snapshot: snapshot)
+            // Check again after the download, including skips while it was in flight.
+            let current = try await readMetadata(active)
+            accept(current)
+            guard !Task.isCancelled, session.generation == generation,
+                  current.state != .closed, current.track == requestedTrack else { return }
+            guard let data, let decoded = NSImage(data: data), decoded.isValid else {
+                session.failed(at: Date())
+                status = "Artwork unavailable · \(requestedTrack.title)"
+                return
+            }
+            guard session.finish(generation: generation) else { return }
+            image = decoded
+            track = requestedTrack
+            persist(data: data, track: requestedTrack, source: active)
+            updateStatus(current)
+        } catch {
+            guard !Task.isCancelled else { return }
+            session.failed(at: Date())
+            if let commandError = error as? CommandError, commandError.isPermissionDenied {
+                deniedSources.insert(active)
+                permissionDenied = true
+                status = "Allow access to \(active.displayName) in System Settings"
+            } else {
+                status = "Artwork unavailable · retrying"
+            }
+        }
+    }
+
+    /// Returns nil when the player reports no artwork or a different track.
+    private func fetchArtwork(from player: PlayerSource, for requestedTrack: Track, snapshot: PlaybackSnapshot) async throws -> Data? {
+        switch player {
+        case .spotify:
+            guard SpotifyArtwork.validatedURL(snapshot.artworkURL) != nil else { return nil }
+            return try await SpotifyArtworkLoader.load(snapshot.artworkURL)
+        case .appleMusic:
             let temporaryURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("AlbumArtwork-\(UUID().uuidString).img")
             defer { try? FileManager.default.removeItem(at: temporaryURL) }
-
-            do {
-                let output = try await runScript("artwork", extension: "applescript", language: "AppleScript", arguments: [
-                    temporaryURL.path, requestedTrack.id, requestedTrack.title, requestedTrack.artist, requestedTrack.album
-                ])
-                let result = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-                // Check again after the file write, including skips during artwork decoding.
-                let current = try await readMetadata()
-                accept(current)
-                guard !Task.isCancelled, session.generation == generation,
-                      current.state != .closed, current.track == requestedTrack else { return }
-                guard result == "ok", let data = try? Data(contentsOf: temporaryURL),
-                      let decoded = NSImage(data: data), decoded.isValid else {
-                    session.failed(at: Date())
-                    status = "Artwork unavailable · \(requestedTrack.title)"
-                    return
-                }
-                guard session.finish(generation: generation) else { return }
-                image = decoded
-                track = requestedTrack
-                persist(data: data, track: requestedTrack)
-                updateStatus(current)
-            } catch {
-                session.failed(at: Date())
-                throw error
-            }
-        } catch {
-            guard !Task.isCancelled else { return }
-            if let commandError = error as? CommandError, commandError.isPermissionDenied {
-                permissionDenied = true
-                status = "Allow access to Music in System Settings"
-            } else {
-                status = "Music unavailable · retrying"
-            }
+            let output = try await runScript("artwork", extension: "applescript", language: "AppleScript", arguments: [
+                temporaryURL.path, requestedTrack.id, requestedTrack.title, requestedTrack.artist, requestedTrack.album
+            ])
+            let result = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard result == "ok" else { return nil }
+            return try? Data(contentsOf: temporaryURL)
         }
     }
 
@@ -121,20 +170,21 @@ final class ArtworkStore: ObservableObject {
 
     private func updateStatus(_ snapshot: PlaybackSnapshot) {
         switch snapshot.state {
-        case .closed: status = "Apple Music is closed · keeping last cover"
+        case .closed: status = "\(playerName) is closed · keeping last cover"
         case .stopped: status = "Playback stopped · keeping last cover"
-        case .paused: status = "Paused · \(track?.title ?? "Apple Music")"
+        case .paused: status = "Paused · \(track?.title ?? playerName)"
         case .playing:
-            status = image == nil ? "Loading artwork…" : "\(track?.title ?? "Playing") · \(track?.artist ?? "Apple Music")"
+            status = image == nil ? "Loading artwork…" : "\(track?.title ?? "Playing") · \(track?.artist ?? playerName)"
         }
         if image == nil && session.attempts > 5 { status = "No artwork available for this track" }
     }
 
-    private func readMetadata() async throws -> PlaybackSnapshot {
-        // Give the user time to respond to the first system Automation prompt.
-        let timeout: TimeInterval = hasContactedMusic ? 5 : 60
-        defer { hasContactedMusic = true }
-        let data = try await runScript("metadata", extension: "js", language: "JavaScript", timeout: timeout)
+    private func readMetadata(_ player: PlayerSource) async throws -> PlaybackSnapshot {
+        // Give the user time to respond to the first system Automation prompt for each player.
+        let timeout: TimeInterval = contactedSources.contains(player) ? 5 : 60
+        defer { contactedSources.insert(player) }
+        let name = player == .spotify ? "spotify-metadata" : "metadata"
+        let data = try await runScript(name, extension: "js", language: "JavaScript", timeout: timeout)
         return try JSONDecoder().decode(PlaybackSnapshot.self, from: data)
     }
 
@@ -149,10 +199,10 @@ final class ArtworkStore: ObservableObject {
             arguments: ["-l", language, script.path] + arguments, timeout: timeout)
     }
 
-    private func persist(data: Data, track: Track) {
+    private func persist(data: Data, track: Track, source: PlayerSource) {
         do {
             try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let encoded = try JSONEncoder().encode(CachedArtwork(track: track, imageData: data))
+            let encoded = try JSONEncoder().encode(CachedArtwork(track: track, imageData: data, source: source))
             try encoded.write(to: cacheURL, options: .atomic)
         } catch {
             // Artwork remains visible if this Mac cannot persist the cache.
