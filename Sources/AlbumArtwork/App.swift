@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item("Reset Position", action: #selector(resetPosition), menu: menu)
         menu.addItem(.separator())
         permissionItem = item("Open Automation Settings…", action: #selector(openPermissionSettings), menu: menu)
-        retryItem = item("Retry Music Access", action: #selector(retryMusic), menu: menu)
+        retryItem = item("Retry Player Access", action: #selector(retryMusic), menu: menu)
         menu.addItem(.separator())
         item("Quit Album Artwork", action: #selector(quit), menu: menu, key: "q")
         statusItem.menu = menu

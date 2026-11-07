@@ -11,5 +11,5 @@
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
-    <key>NSAppleEventsUsageDescription</key><string>Album Artwork reads the current song and album cover from Music to display it on your desktop.</string>
+    <key>NSAppleEventsUsageDescription</key><string>Album Artwork reads the current song and album cover from Music or Spotify to display it on your desktop.</string>
 </dict></plist>

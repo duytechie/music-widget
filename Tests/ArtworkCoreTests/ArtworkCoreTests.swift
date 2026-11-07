@@ -57,6 +57,44 @@ final class ArtworkCoreTests: XCTestCase {
         XCTAssertEqual(value.track?.album, "私の音楽")
     }
 
+    func testSpotifyMetadataDecodesArtworkURL() throws {
+        let json = #"{"state":"playing","track":{"id":"spotify:track:1","title":"One","artist":"Artist","album":"Album"},"artworkURL":"https://i.scdn.co/image/abc"}"#
+        let value = try JSONDecoder().decode(PlaybackSnapshot.self, from: Data(json.utf8))
+        XCTAssertEqual(value.artworkURL, "https://i.scdn.co/image/abc")
+        let music = try JSONDecoder().decode(PlaybackSnapshot.self, from: Data(#"{"state":"paused","track":{"id":"1","title":"","artist":"","album":""}}"#.utf8))
+        XCTAssertNil(music.artworkURL)
+    }
+
+    func testSpotifyArtworkURLValidationAllowsOnlySpotifyImageHosts() {
+        XCTAssertNotNil(SpotifyArtwork.validatedURL("https://i.scdn.co/image/ab67616d0000b273"))
+        XCTAssertNotNil(SpotifyArtwork.validatedURL("https://mosaic.scdn.co/640/abc"))
+        XCTAssertNotNil(SpotifyArtwork.validatedURL("https://image-cdn-ak.spotifycdn.com/image/abc"))
+        XCTAssertNil(SpotifyArtwork.validatedURL("http://i.scdn.co/image/abc"))
+        XCTAssertNil(SpotifyArtwork.validatedURL("https://evilscdn.co/image/abc"))
+        XCTAssertNil(SpotifyArtwork.validatedURL("https://i.scdn.co.example.com/image"))
+        XCTAssertNil(SpotifyArtwork.validatedURL("https://user:pw@i.scdn.co/image"))
+        XCTAssertNil(SpotifyArtwork.validatedURL("file:///etc/passwd"))
+        XCTAssertNil(SpotifyArtwork.validatedURL(""))
+        XCTAssertNil(SpotifyArtwork.validatedURL(nil))
+    }
+
+    func testSourceSelectorPrefersPlayingPlayerAndKeepsCurrentWhenIdle() {
+        let spotifyTrack = Track(id: "spotify:track:1", title: "S", artist: "A", album: "B")
+        var selector = SourceSelector()
+        XCTAssertNil(selector.choose([:]))
+        // Nothing playing on first launch: show whichever player has a track.
+        XCTAssertEqual(selector.choose([.spotify: .init(state: .paused, track: spotifyTrack)]), .spotify)
+        // A playing player takes over.
+        XCTAssertEqual(selector.choose([.spotify: .init(state: .paused, track: spotifyTrack),
+                                        .appleMusic: .init(state: .playing, track: first)]), .appleMusic)
+        // Both playing: the current one is kept rather than flickering.
+        XCTAssertEqual(selector.choose([.spotify: .init(state: .playing, track: spotifyTrack),
+                                        .appleMusic: .init(state: .playing, track: first)]), .appleMusic)
+        // Current player closes while the other is merely paused: keep the last cover's player.
+        XCTAssertEqual(selector.choose([.spotify: .init(state: .paused, track: spotifyTrack)]), .appleMusic)
+        XCTAssertEqual(selector.choose([.spotify: .init(state: .playing, track: spotifyTrack)]), .spotify)
+    }
+
     func testPermissionErrorDetection() {
         XCTAssertTrue(CommandError.failed(1, "Not authorized to send Apple events to Music. (-1743)").isPermissionDenied)
         XCTAssertFalse(CommandError.failed(1, "No artwork. (-1728)").isPermissionDenied)

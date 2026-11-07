@@ -18,10 +18,13 @@ public struct PlaybackSnapshot: Decodable, Sendable {
     public enum State: String, Decodable, Sendable { case playing, paused, stopped, closed }
     public let state: State
     public let track: Track?
+    /// Supplied by players, such as Spotify, that publish a cover URL instead of image data.
+    public let artworkURL: String?
 
-    public init(state: State, track: Track? = nil) {
+    public init(state: State, track: Track? = nil, artworkURL: String? = nil) {
         self.state = state
         self.track = track
+        self.artworkURL = artworkURL
     }
 }
 

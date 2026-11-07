@@ -24,7 +24,7 @@ struct ArtworkView: View {
         .frame(width: DesktopTile.side, height: DesktopTile.side)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(store.track.map { "\($0.album), \($0.artist)" } ?? "Apple Music artwork")
+        .accessibilityLabel(store.track.map { "\($0.album), \($0.artist)" } ?? "Album artwork")
         .help(store.status)
         .overlay {
             DragSurface(onDrag: onDrag)
